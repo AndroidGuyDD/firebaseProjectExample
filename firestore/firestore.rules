@@ -1,0 +1,63 @@
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn(){
+    	return request.auth.uid != null;
+    }
+
+    function isDocumentOwner(userId) {
+  		return request.auth.uid == userId
+		}	
+
+    function isAllowedInRoom(roomId){
+      // counts as DB read 
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)/room_memberships/$(roomId))
+    }
+
+    function isAdmin() {
+      // counts as DB read
+      return getDBUser().isAdmin == true
+    }
+
+    function existingData() {
+      return resource.data
+    }
+
+    function incomingData() {
+      return request.resource.data
+    }
+
+    function getDBUser() {
+  		return get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+		}
+
+    // !!!!!
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // rules for users collection
+    match /users/{userId} {
+    	allow read: if signedIn() 
+    	allow update: if signedIn() && isDocumentOwner(userId)
+    }
+
+    // rule for chat room collection
+    match /chat_rooms/{roomId} {
+    	allow read: if signedIn() 
+    	allow update: if signedIn() && isAdmin()
+
+      // shurtcut rule syntax for nested collection (relative to parent)
+      match /messages/{messageId} {
+        allow read: if signedIn() && isAllowedInRoom(roomId)
+        allow update: if signedIn() && isDocumentOwner(existingData().userId)
+      }
+
+      match /membership_request/{requestId} {
+        allow read: if signedIn() && isAdmin()
+        allow create: if signedIn()
+      }
+    }
+
+  }
+}
